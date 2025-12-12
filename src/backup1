@@ -1,16 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>WebVitalsTest</title>
-    <base href="/" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  </head>
-  <body>
-    <app-root></app-root>
-    <script>
-      var webVitals = (function (exports) {
+ var webVitals = (function (exports) {
         "use strict";
 
         /*
@@ -73,12 +61,15 @@
           thresholds,
           reportAllChanges
         ) => {
+          // console.log(67);
           let prevValue;
           let delta;
           return (forceReport) => {
             if (metric.value >= 0) {
+              console.log(81, reportAllChanges, prevValue)
               if (forceReport || reportAllChanges) {
                 delta = metric.value - (prevValue ?? 0);
+                console.log(82, delta, prevValue)
                 // Report the metric if there's a non-zero delta or if no previous
                 // value exists (which can happen in the case of the document becoming
                 // hidden when the metric value is 0).
@@ -279,6 +270,9 @@
          * limitations under the License.
          */
         class LayoutShiftManager {
+          constructor() {
+            console.log(285);
+          }
           _onAfterProcessingUnexpectedShift;
           _sessionValue = 0;
           _sessionEntries = [];
@@ -305,6 +299,12 @@
               this._sessionEntries = [entry];
             }
             this._onAfterProcessingUnexpectedShift?.(entry);
+          }
+
+          _resetSessionEntries() {
+            console.log(312);
+            this._sessionValue = 0;
+            this._sessionEntries = [];
           }
         }
 
@@ -347,6 +347,7 @@
                 buffered: true,
                 ...opts,
               });
+              // po.
               return po;
             }
           } catch {
@@ -628,23 +629,32 @@
           // Note: this is done to match the current behavior of CrUX.
           onFCP(
             runOnce(() => {
+              console.log(632);
               let metric = initMetric("CLS", 0);
               let report;
               const layoutShiftManager = initUnique(opts, LayoutShiftManager);
               const handleEntries = (entries) => {
+                // layoutShiftManager._resetSessionEntries();
+
+
                 for (const entry of entries) {
                   layoutShiftManager._processEntry(entry);
                 }
                 // If the current session value is larger than the current CLS value,
                 // update CLS and the entries contributing to it.
-                if (layoutShiftManager._sessionValue > metric.value) {
+                console.log(641, metric.value, layoutShiftManager._sessionValue);
+                // if (layoutShiftManager._sessionValue) {
+                // if (layoutShiftManager._sessionValue > metric.value) {
+                  console.log(654)
                   metric.value = layoutShiftManager._sessionValue;
                   metric.entries = layoutShiftManager._sessionEntries;
-                  report();
-                }
+                  report(true);
+                // }
               };
               const po = observe("layout-shift", handleEntries);
+              console.log(po)
               if (po) {
+                console.log(674);
                 report = bindReporter(
                   onReport,
                   metric,
@@ -652,12 +662,14 @@
                   opts.reportAllChanges
                 );
                 visibilityWatcher.onHidden(() => {
+                  console.log(661);
                   handleEntries(po.takeRecords());
-                  report(true);
+                  report();
                 });
                 // Only report after a bfcache restore if the `PerformanceObserver`
                 // successfully registered.
                 onBFCacheRestore(() => {
+                  console.log(668);
                   layoutShiftManager._sessionValue = 0;
                   metric = initMetric("CLS", 0);
                   report = bindReporter(
@@ -799,6 +811,7 @@
            * and entries list is updated as needed.
            */
           _processEntry(entry) {
+            // console.log(803, entry)
             this._onBeforeProcessingEntry?.(entry);
             // Skip further processing for entries that cannot be INP candidates.
             if (!(entry.interactionId || entry.entryType === "first-input"))
@@ -969,6 +982,7 @@
             let report;
             const interactionManager = initUnique(opts, InteractionManager);
             const handleEntries = (entries) => {
+              // console.log(973);
               // Queue the `handleEntries()` callback in the next idle task.
               // This is needed to increase the chances that all event entries that
               // occurred between the user interaction and the next paint
@@ -977,13 +991,17 @@
               // 123+ that if rolled out fully may make this no longer necessary.
               whenIdleOrHidden(() => {
                 for (const entry of entries) {
+                  // 802
                   interactionManager._processEntry(entry);
                 }
                 const inp = interactionManager._estimateP98LongestInteraction();
+                // console.log(981, inp);
                 if (inp && inp._latency !== metric.value) {
                   metric.value = inp._latency;
                   metric.entries = inp.entries;
                   report();
+
+                  interactionManager._resetInteractions();
                 }
               });
             };
@@ -1003,6 +1021,7 @@
               INPThresholds,
               opts.reportAllChanges
             );
+            // console.log(906);
             if (po) {
               // Also observe entries of type `first-input`. This is useful in cases
               // where the first interaction is less than the `durationThreshold`.
@@ -1011,12 +1030,14 @@
                 buffered: true,
               });
               visibilityWatcher.onHidden(() => {
+                // console.log(914);
                 handleEntries(po.takeRecords());
                 report(true);
               });
               // Only report after a bfcache restore if the `PerformanceObserver`
               // successfully registered.
               onBFCacheRestore(() => {
+                // console.log(920);
                 interactionManager._resetInteractions();
                 metric = initMetric("INP");
                 report = bindReporter(
@@ -1263,6 +1284,4 @@
 
         return exports;
       })({});
-    </script>
-  </body>
-</html>
+    

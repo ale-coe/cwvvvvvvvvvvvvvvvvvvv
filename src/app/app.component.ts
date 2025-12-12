@@ -1,12 +1,244 @@
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, inject, OnInit } from '@angular/core';
+import {
+  ActivatedRoute,
+  NavigationEnd,
+  Router,
+  RouterLinkWithHref,
+  RouterOutlet,
+} from '@angular/router';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, RouterLinkWithHref],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+  styleUrl: './app.component.css',
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   title = 'web-vitals-test';
+  route = inject(ActivatedRoute);
+  router = inject(Router);
+
+  cls!: CLS;
+  inp!: INP;
+
+  ngOnInit(): void {
+    // (window as any).webVitals.onINP(console.log, {
+    //   durationThreshold: 16,
+    //   reportAllChanges: true,
+    // });
+    // (window as any).webVitals.onCLS(console.log, {
+    //   reportAllChanges: true,
+    // });
+
+    // TODO1: make factory
+    this.router.events.subscribe({
+      next: (v) => {
+        if (v instanceof NavigationEnd) {
+          const resultCls = this.cls?.destroy();
+          const resltInp = this.inp?.destroy();
+          if (resultCls) {
+            console.log(this.router.url, resultCls);
+          }
+          if (resltInp) {
+            console.log(this.router.url, resltInp);
+          }
+
+          this.cls = new CLS(performance.now());
+          this.inp = new INP(performance.now());
+        }
+      },
+    });
+  }
+}
+
+class CLS {
+  thresholds = [0.1, 0.25];
+  name = 'CLS';
+  processed = false;
+
+  private po: PerformanceObserver;
+
+  constructor(private readonly routeStartTime: number) {
+    this.po = new PerformanceObserver((entries) => {
+      for (const shift of entries.getEntries()) {
+        this._processEntry(shift);
+      }
+    });
+    this.po.observe({ type: 'layout-shift', buffered: true });
+  }
+
+  _sessionValue = 0;
+  _sessionEntries: any[] = [];
+
+  _maxValue = 0;
+
+  _processEntry(entry: any) {
+    // Only count layout shifts without recent user input.
+    if (entry.hadRecentInput || entry.startTime < this.routeStartTime) return;
+
+    this.processed = true;
+    const firstSessionEntry = this._sessionEntries[0];
+    const lastSessionEntry = this._sessionEntries.at(-1);
+
+    // If the entry occurred less than 1 second after the previous entry
+    // and less than 5 seconds after the first entry in the session,
+    // include the entry in the current session. Otherwise, start a new
+    // session.
+    if (
+      this._sessionValue &&
+      firstSessionEntry &&
+      lastSessionEntry &&
+      entry.startTime - lastSessionEntry.startTime < 1000 &&
+      entry.startTime - firstSessionEntry.startTime < 5000
+    ) {
+      this._sessionValue += entry.value;
+      this._sessionEntries.push(entry);
+    } else {
+      this._sessionValue = entry.value;
+      this._sessionEntries = [entry];
+    }
+
+    this._maxValue = Math.max(this._sessionValue, this._maxValue);
+  }
+
+  getRating = (value: number) => {
+    if (value > this.thresholds[1]) {
+      return 'poor';
+    }
+    if (value > this.thresholds[0]) {
+      return 'needs-improvement';
+    }
+    return 'good';
+  };
+
+  report(value: number) {
+    return { name: this.name, rating: this.getRating(value), value };
+  }
+
+  destroy() {
+    this.po.disconnect();
+    return this.processed ? this.report(this._maxValue) : null;
+  }
+}
+
+class INP {
+  thresholds = [200, 500];
+  name = 'INP';
+  processed = false;
+
+  MAX_INTERACTIONS_TO_CONSIDER = 10;
+  prevInteractionCount = 0;
+  DEFAULT_DURATION_THRESHOLD = 40;
+
+  private po: PerformanceObserver;
+
+  constructor(private readonly routeStartTime: number) {
+    this.po = new PerformanceObserver((entries) => {
+      for (const entry of entries.getEntries()) {
+        this._processEntry(entry);
+      }
+    });
+    this.po.observe({
+      type: 'event',
+      buffered: true,
+      durationThreshold: this.DEFAULT_DURATION_THRESHOLD,
+    } as any);
+  }
+
+  /**
+   * A list of longest interactions on the page (by latency) sorted so the
+   * longest one is first. The list is at most MAX_INTERACTIONS_TO_CONSIDER
+   * long.
+   */
+  _longestInteractionList: any[] = [];
+
+  /**
+   * A mapping of longest interactions by their interaction ID.
+   * This is used for faster lookup.
+   */
+  _longestInteractionMap: Map<number, any> = new Map();
+
+  /**
+   * Takes a performance entry and adds it to the list of worst interactions
+   * if its duration is long enough to make it among the worst. If the
+   * entry is part of an existing interaction, it is merged and the latency
+   * and entries list is updated as needed.
+   */
+  _processEntry(entry: any) {
+    if (!entry.interactionId || entry.startTime < this.routeStartTime) return;
+
+    this.processed = true;
+
+    // The least-long of the 10 longest interactions.
+    const minLongestInteraction = this._longestInteractionList.at(-1);
+
+    let interaction = this._longestInteractionMap.get(entry.interactionId!);
+
+    // Only process the entry if it's possibly one of the ten longest,
+    // or if it's part of an existing interaction.
+    if (
+      interaction ||
+      this._longestInteractionList.length < this.MAX_INTERACTIONS_TO_CONSIDER ||
+      // If the above conditions are false, `minLongestInteraction` will be set.
+      entry.duration > minLongestInteraction!._latency
+    ) {
+      // If the interaction already exists, update it. Otherwise create one.
+      if (interaction) {
+        // If the new entry has a longer duration, replace the old entries,
+        // otherwise add to the array.
+        if (entry.duration > interaction._latency) {
+          interaction.entries = [entry];
+          interaction._latency = entry.duration;
+        } else if (
+          entry.duration === interaction._latency &&
+          entry.startTime === interaction.entries[0].startTime
+        ) {
+          interaction.entries.push(entry);
+        }
+      } else {
+        interaction = {
+          id: entry.interactionId!,
+          entries: [entry],
+          _latency: entry.duration,
+        };
+        this._longestInteractionMap.set(interaction.id, interaction);
+        this._longestInteractionList.push(interaction);
+      }
+
+      // Sort the entries by latency (descending) and keep only the top ten.
+      this._longestInteractionList.sort((a, b) => b._latency - a._latency);
+      if (
+        this._longestInteractionList.length > this.MAX_INTERACTIONS_TO_CONSIDER
+      ) {
+        const removedInteractions = this._longestInteractionList.splice(
+          this.MAX_INTERACTIONS_TO_CONSIDER
+        );
+
+        for (const interaction of removedInteractions) {
+          this._longestInteractionMap.delete(interaction.id);
+        }
+      }
+    }
+  }
+
+  getRating = (value: number) => {
+    if (value > this.thresholds[1]) {
+      return 'poor';
+    }
+    if (value > this.thresholds[0]) {
+      return 'needs-improvement';
+    }
+    return 'good';
+  };
+
+  report(value: number) {
+    return { name: this.name, rating: this.getRating(value), value };
+  }
+
+  destroy() {
+    this.po.disconnect();
+    return this.processed
+      ? this.report(this._longestInteractionList[0]._latency)
+      : null;
+  }
 }
