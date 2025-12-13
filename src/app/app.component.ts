@@ -30,7 +30,6 @@ export class AppComponent implements OnInit {
     //   reportAllChanges: true,
     // });
 
-    // TODO1: make factory
     this.router.events.subscribe({
       next: (v) => {
         if (v instanceof NavigationEnd) {
@@ -43,28 +42,75 @@ export class AppComponent implements OnInit {
             console.log(this.router.url, resltInp);
           }
 
-          this.cls = new CLS(performance.now());
-          this.inp = new INP(performance.now());
+          this.cls = createMetricFactory(CLS);
+          this.inp = createMetricFactory(INP);
         }
       },
     });
   }
 }
 
-class CLS {
-  thresholds = [0.1, 0.25];
-  name = 'CLS';
-  processed = false;
+type MetricCtor<T extends Metric> = new (routeStartTime: number) => T;
+const createMetricFactory = <T extends Metric>(ctr: MetricCtor<T>): T => {
+  return new ctr(performance.now());
+};
 
-  private po: PerformanceObserver;
+abstract class Metric {
+  protected abstract thresholds: [number, number];
+  protected abstract name: string;
+  protected po: PerformanceObserver;
+  protected processed = false;
 
-  constructor(private readonly routeStartTime: number) {
+  constructor(
+    protected readonly routeStartTime: number,
+    type: string,
+    opts = {}
+  ) {
     this.po = new PerformanceObserver((entries) => {
-      for (const shift of entries.getEntries()) {
-        this._processEntry(shift);
+      for (const entry of entries.getEntries()) {
+        this._processEntry(entry);
       }
     });
-    this.po.observe({ type: 'layout-shift', buffered: true });
+    this.po.observe({
+      type,
+      buffered: true,
+      ...opts,
+    } as any);
+  }
+
+  protected abstract _processEntry(entry: any): any;
+  protected abstract getReportValue(): number;
+
+  getRating = (value: number) => {
+    if (value > this.thresholds[1]) {
+      return 'poor';
+    }
+    if (value > this.thresholds[0]) {
+      return 'needs-improvement';
+    }
+    return 'good';
+  };
+
+  report(value: number) {
+    return { name: this.name, rating: this.getRating(value), value };
+  }
+
+  public destroy() {
+    for (const entry of this.po.takeRecords()) {
+      this._processEntry(entry);
+    }
+
+    this.po.disconnect();
+    return this.processed ? this.report(this.getReportValue()) : null;
+  }
+}
+
+class CLS extends Metric {
+  protected thresholds = [0.1, 0.25] as [number, number];
+  protected name = 'CLS';
+
+  constructor(protected override readonly routeStartTime: number) {
+    super(routeStartTime, 'layout-shift');
   }
 
   _sessionValue = 0;
@@ -101,48 +147,20 @@ class CLS {
     this._maxValue = Math.max(this._sessionValue, this._maxValue);
   }
 
-  getRating = (value: number) => {
-    if (value > this.thresholds[1]) {
-      return 'poor';
-    }
-    if (value > this.thresholds[0]) {
-      return 'needs-improvement';
-    }
-    return 'good';
-  };
-
-  report(value: number) {
-    return { name: this.name, rating: this.getRating(value), value };
-  }
-
-  destroy() {
-    this.po.disconnect();
-    return this.processed ? this.report(this._maxValue) : null;
+  protected override getReportValue(): number {
+    return this._maxValue;
   }
 }
 
-class INP {
-  thresholds = [200, 500];
+class INP extends Metric {
+  thresholds = [200, 500] as [number, number];
   name = 'INP';
-  processed = false;
 
   MAX_INTERACTIONS_TO_CONSIDER = 10;
   prevInteractionCount = 0;
-  DEFAULT_DURATION_THRESHOLD = 40;
 
-  private po: PerformanceObserver;
-
-  constructor(private readonly routeStartTime: number) {
-    this.po = new PerformanceObserver((entries) => {
-      for (const entry of entries.getEntries()) {
-        this._processEntry(entry);
-      }
-    });
-    this.po.observe({
-      type: 'event',
-      buffered: true,
-      durationThreshold: this.DEFAULT_DURATION_THRESHOLD,
-    } as any);
+  constructor(protected override readonly routeStartTime: number) {
+    super(routeStartTime, 'event', { durationThreshold: 40 });
   }
 
   /**
@@ -221,24 +239,7 @@ class INP {
     }
   }
 
-  getRating = (value: number) => {
-    if (value > this.thresholds[1]) {
-      return 'poor';
-    }
-    if (value > this.thresholds[0]) {
-      return 'needs-improvement';
-    }
-    return 'good';
-  };
-
-  report(value: number) {
-    return { name: this.name, rating: this.getRating(value), value };
-  }
-
-  destroy() {
-    this.po.disconnect();
-    return this.processed
-      ? this.report(this._longestInteractionList[0]._latency)
-      : null;
+  protected override getReportValue(): number {
+    return this._longestInteractionList[0]?._latency || 0;
   }
 }
