@@ -55,6 +55,9 @@ const createMetricFactory = <T extends Metric>(ctr: MetricCtor<T>): T => {
   return new ctr(performance.now());
 };
 
+/**
+ * Based on web vitals v5.1.0
+ */
 abstract class Metric {
   protected abstract thresholds: [number, number];
   protected abstract name: string;
