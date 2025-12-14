@@ -1,13 +1,16 @@
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, OnInit } from '@angular/core';
 
 @Component({
   selector: 'app-comp2',
-  imports: [RouterOutlet],
+  imports: [],
   templateUrl: './comp2.component.html',
   styleUrl: './comp2.component.css',
 })
-export class Comp2Component {
+export class Comp2Component implements OnInit {
+  ngOnInit(): void {
+    console.log('init comp2');
+  }
+
   title = 'web-vitals-test';
 
   test() {

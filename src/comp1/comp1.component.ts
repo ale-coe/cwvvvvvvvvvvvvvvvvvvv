@@ -1,14 +1,17 @@
 import { NgIf } from '@angular/common';
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, OnInit } from '@angular/core';
 
 @Component({
   selector: 'app-comp1',
-  imports: [RouterOutlet, NgIf],
+  imports: [NgIf],
   templateUrl: './comp1.component.html',
   styleUrl: './comp1.component.css',
 })
-export class Comp1Component {
+export class Comp1Component implements OnInit {
+  ngOnInit(): void {
+    console.log('init comp1');
+  }
+
   title = 'web-vitals-test';
   show = false;
 
