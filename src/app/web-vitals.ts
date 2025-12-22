@@ -221,25 +221,37 @@ abstract class Metric {
 
   constructor(
     protected readonly routeStartTime: number,
-    type: string,
-    opts = {}
+    observations: { type: string; opts: object }[]
   ) {
     this.po = new PerformanceObserver((entries) => {
       for (const entry of entries.getEntries()) {
         this._processEntry(entry);
       }
     });
-    this.po.observe({
-      type,
-      buffered: true,
-      ...opts,
-    } as any);
+
+    for (const { type, opts } of observations) {
+      this.po.observe({
+        type,
+        buffered: true,
+        ...opts,
+      } as any);
+    }
   }
 
   protected abstract _processEntry(entry: any): any;
-  protected abstract getReportValue(): number;
+  protected abstract getReportValue(): { value: number; selector: string };
 
-  getRating = (value: number) => {
+  protected getCssSelector(element?: HTMLElement) {
+    console.log(element);
+    return element
+      ? element.tagName +
+          (element.className
+            ? '.' + element.className.split(' ').join('.')
+            : '')
+      : '';
+  }
+
+  private getRating = (value: number) => {
     if (value > this.thresholds[1]) {
       return 'poor';
     }
@@ -249,8 +261,8 @@ abstract class Metric {
     return 'good';
   };
 
-  report(value: number) {
-    return { name: this.name, rating: this.getRating(value), value };
+  private report({ value, selector }: { value: number; selector: string }) {
+    return { name: this.name, rating: this.getRating(value), value, selector };
   }
 
   public destroy() {
@@ -259,7 +271,9 @@ abstract class Metric {
     }
 
     this.po.disconnect();
-    return this.processed ? this.report(this.getReportValue()) : null;
+    return this.processed
+      ? this.report(this.getReportValue())
+      : this.report({ value: 0, selector: '' });
   }
 
   // TODO: missing cache as in onBFCacheRestore
@@ -270,7 +284,7 @@ export class CLS extends Metric {
   protected name = 'CLS';
 
   constructor(protected override readonly routeStartTime: number) {
-    super(routeStartTime, 'layout-shift');
+    super(routeStartTime, [{ type: 'layout-shift', opts: {} }]);
   }
 
   _sessionValue = 0;
@@ -282,7 +296,7 @@ export class CLS extends Metric {
   // Copyright 2020 Google LLCs
   // Licensed under Apache-2.0
   _processEntry(entry: any) {
-    // Only count layout shifts without recent user input.
+    // skip entries that from previous route
     if (entry.hadRecentInput || entry.startTime < this.routeStartTime) return;
 
     this.processed = true;
@@ -310,10 +324,11 @@ export class CLS extends Metric {
     this._maxValue = Math.max(this._sessionValue, this._maxValue);
   }
 
-  protected override getReportValue(): number {
-    // TODO: get one element that was shifted from events (i.e. first one is enough if multiple where shifted)
-    // console.log(sources[0].node)
-    return this._maxValue;
+  protected override getReportValue() {
+    return {
+      value: this._maxValue,
+      selector: this.getCssSelector(this._sessionEntries[0].sources[0].node),
+    };
   }
 }
 
@@ -325,7 +340,10 @@ export class INP extends Metric {
   prevInteractionCount = 0;
 
   constructor(protected override readonly routeStartTime: number) {
-    super(routeStartTime, 'event', { durationThreshold: 40 });
+    super(routeStartTime, [
+      { type: 'event', opts: { durationThreshold: 40 } },
+      { type: 'first-input', opts: {} },
+    ]);
   }
 
   /**
@@ -351,6 +369,7 @@ export class INP extends Metric {
    * and entries list is updated as needed.
    */
   _processEntry(entry: any) {
+    // skip entries that from previous route
     if (!entry.interactionId || entry.startTime < this.routeStartTime) return;
 
     this.processed = true;
@@ -407,9 +426,11 @@ export class INP extends Metric {
     }
   }
 
-  protected override getReportValue(): number {
-    // TODO: get element that was shifted (first one is enough)
-    // console.log(this._longestInteractionList[0].entries[0].target);
-    return this._longestInteractionList[0]?._latency || 0;
+  protected override getReportValue() {
+    const entry = this._longestInteractionList[0];
+    return {
+      value: entry?._latency || 0,
+      selector: this.getCssSelector(entry.entries[0].target),
+    };
   }
 }
